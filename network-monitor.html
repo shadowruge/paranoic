@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Projeto Paranoic</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --green:  #00ff88;
+    --red:    #ff3355;
+    --yellow: #ffcc00;
+    --bg:     #090e14;
+    --panel:  #0d1520;
+    --border: #1a2d44;
+    --text:   #c8d8e8;
+    --dim:    #4a6278;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 15px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(to bottom,transparent 0,transparent 3px,rgba(0,0,0,.07) 3px,rgba(0,0,0,.07) 4px);
+    pointer-events: none; z-index: 999;
+  }
+
+  /* ── HEADER ── */
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap; row-gap: 8px;
+  }
+  .logo {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 20px; color: var(--green);
+    letter-spacing: 3px;
+    text-shadow: 0 0 12px rgba(0,255,136,.5);
+  }
+  .pulse {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--green); box-shadow: 0 0 8px var(--green);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
+  .status-bar {
+    margin-left: auto; display: flex; gap: 20px; flex-wrap: wrap;
+    font-family: 'Share Tech Mono', monospace; font-size: 12px; color: var(--dim);
+  }
+  .status-bar span { color: var(--green); }
+  #ws-status { font-family: 'Share Tech Mono', monospace; font-size: 12px; color: var(--dim); }
+
+  /* ── DEBUG OVERLAY ── */
+  #debug-bar {
+    background: #0a1520;
+    border-bottom: 1px solid var(--border);
+    padding: 5px 24px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--dim);
+    display: flex; gap: 24px; flex-wrap: wrap;
+  }
+  #debug-bar .dbv { color: var(--yellow); }
+  #debug-bar .dbe { color: var(--red); }
+
+  /* ── LAYOUT ── */
+  main {
+    display: grid;
+    grid-template-rows: 300px 1fr;
+    height: calc(100vh - 90px);
+  }
+  #map { width: 100%; height: 100%; background: #07101a; border-bottom: 1px solid var(--border); }
+  .leaflet-tile { filter: invert(1) hue-rotate(180deg) brightness(.85) saturate(.6); }
+  .leaflet-container { background: #050b12 !important; }
+
+  .bottom { display: grid; grid-template-columns: 1fr 300px; overflow: hidden; }
+
+  /* ── TABLE ── */
+  .table-wrap { overflow-y: auto; border-right: 1px solid var(--border); }
+  .table-wrap::-webkit-scrollbar { width: 5px; }
+  .table-wrap::-webkit-scrollbar-thumb { background: var(--border); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    position: sticky; top: 0; background: var(--panel);
+    padding: 9px 12px; text-align: left;
+    font-family: 'Share Tech Mono', monospace; font-size: 10px;
+    color: var(--dim); letter-spacing: 1.5px; text-transform: uppercase;
+    border-bottom: 1px solid var(--border); z-index: 2;
+  }
+  tbody tr { border-bottom: 1px solid rgba(26,45,68,.5); transition: background .15s; }
+  tbody tr:hover { background: rgba(0,255,136,.04); }
+  tbody td { padding: 8px 12px; font-family: 'Share Tech Mono', monospace; font-size: 12px; }
+  .ip-cell { color: var(--green); }
+  .bytes-cell { color: var(--yellow); font-size: 11px; }
+  .geo-cell { color: var(--text); font-size: 11px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .isp-cell { color: var(--dim); font-size: 11px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .src-badge {
+    display: inline-block; padding: 1px 5px; border-radius: 2px; font-size: 9px;
+    background: rgba(0,255,136,.1); color: var(--dim); border: 1px solid var(--border);
+  }
+  .btn-block, .btn-unblock {
+    padding: 3px 8px; border: none; border-radius: 3px;
+    font-family: 'Share Tech Mono', monospace; font-size: 10px;
+    cursor: pointer; letter-spacing: 1px; transition: opacity .15s;
+  }
+  .btn-block  { background: rgba(255,51,85,.2);  color: var(--red);   border: 1px solid rgba(255,51,85,.4); }
+  .btn-unblock{ background: rgba(0,255,136,.1);  color: var(--green); border: 1px solid rgba(0,255,136,.3); margin-left: 4px; }
+  .btn-block:hover,.btn-unblock:hover { opacity: .7; }
+
+  /* ── EMPTY STATE ── */
+  #empty-state {
+    display: none; padding: 32px; text-align: center;
+    font-family: 'Share Tech Mono', monospace; font-size: 12px; color: var(--dim);
+  }
+
+  /* ── LOGS ── */
+  .logs-panel { display: flex; flex-direction: column; background: var(--panel); overflow: hidden; }
+  .logs-header {
+    padding: 9px 14px; font-family: 'Share Tech Mono', monospace; font-size: 11px;
+    color: var(--dim); letter-spacing: 2px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .logs-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+  .logs-list::-webkit-scrollbar { width: 4px; }
+  .logs-list::-webkit-scrollbar-thumb { background: var(--border); }
+  .log-entry {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 14px; font-family: 'Share Tech Mono', monospace; font-size: 11px;
+    border-bottom: 1px solid rgba(26,45,68,.3);
+  }
+  .log-action { padding: 1px 6px; border-radius: 2px; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+  .log-action.BLOCK   { background: rgba(255,51,85,.2);  color: var(--red); }
+  .log-action.UNBLOCK { background: rgba(0,255,136,.15); color: var(--green); }
+  .log-ip   { color: var(--text); flex: 1; }
+  .log-time { color: var(--dim); font-size: 10px; }
+  .no-logs  { padding: 24px; text-align: center; color: var(--dim); font-family: 'Share Tech Mono', monospace; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="pulse"></div>
+  <div class="logo">NETWATCH</div>
+  <div class="status-bar">
+    <div>CONEXÕES: <span id="stat-conns">0</span></div>
+    <div>PACOTES: <span id="stat-pkts">0</span></div>
+    <div>BYTES: <span id="stat-bytes">0 B</span></div>
+  </div>
+  <div id="ws-status">⬤ AGUARDANDO</div>
+</header>
+
+<div id="debug-bar">
+  <div>WS: <span class="dbv" id="db-ws">—</span></div>
+  <div>MSGS: <span class="dbv" id="db-msgs">0</span></div>
+  <div>ÚLTIMO: <span class="dbv" id="db-last">—</span></div>
+  <div>IPs: <span class="dbv" id="db-ips">0</span></div>
+  <div>INTERFACE: <span class="dbv" id="db-iface">—</span></div>
+  <div id="db-err" class="dbe"></div>
+</div>
+
+<main>
+  <div id="map"></div>
+  <div class="bottom">
+    <div class="table-wrap">
+      <div id="empty-state">Aguardando tráfego de rede...<br><br>Verifique /debug para diagnóstico</div>
+      <table>
+        <thead>
+          <tr>
+            <th>IP</th>
+            <th>Localização</th>
+            <th>ISP</th>
+            <th>Pkts</th>
+            <th>Bytes</th>
+            <th>Fonte</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tabela"></tbody>
+      </table>
+    </div>
+    <div class="logs-panel">
+      <div class="logs-header">► FIREWALL LOGS</div>
+      <div class="logs-list" id="logs"><div class="no-logs">sem eventos</div></div>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// ── CONFIG ────────────────────────────────────────────
+const SERVER_LAT = -22.9;
+const SERVER_LON = -43.2;
+
+// ── MAPA ─────────────────────────────────────────────
+const map = L.map('map', { center: [20, 0], zoom: 2, zoomControl: false, attributionControl: false });
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+const markers = {}, lines = {};
+
+// ── UTILS ─────────────────────────────────────────────
+let msgCount = 0;
+
+function formatBytes(b) {
+  b = b || 0;
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+
+function dbg(field, val, isErr) {
+  const el = document.getElementById('db-' + field);
+  if (el) { el.textContent = val; if (isErr) el.className = 'dbe'; }
+}
+
+// ── RENDER ────────────────────────────────────────────
+function render(data) {
+  if (!Array.isArray(data)) {
+    dbg('err', 'payload não é array: ' + typeof data, true);
+    return;
+  }
+
+  msgCount++;
+  dbg('msgs', msgCount);
+  dbg('last', new Date().toLocaleTimeString('pt-BR'));
+  dbg('ips', data.length);
+  dbg('err', '');  // limpa erro
+
+  // empty state
+  document.getElementById('empty-state').style.display = data.length === 0 ? 'block' : 'none';
+
+  updateTable(data);
+  updateMap(data);
+}
+
+function updateTable(data) {
+  const tbody = document.getElementById('tabela');
+  tbody.innerHTML = '';
+  let totalPkts = 0, totalBytes = 0;
+
+  data.sort((a, b) => (b.packets||0) - (a.packets||0));
+
+  data.forEach(conn => {
+    totalPkts  += conn.packets || 0;
+    totalBytes += conn.bytes   || 0;
+    const geo = conn.geo || {};
+    const loc = [geo.city, geo.country].filter(Boolean).join(', ') || '—';
+    const tr  = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="ip-cell">${conn.ip}</td>
+      <td class="geo-cell" title="${loc}">${loc}</td>
+      <td class="isp-cell" title="${geo.isp||''}">${geo.isp||'—'}</td>
+      <td>${conn.packets||0}</td>
+      <td class="bytes-cell">${formatBytes(conn.bytes)}</td>
+      <td><span class="src-badge">${conn.source||'?'}</span></td>
+      <td>
+        <button class="btn-block"   onclick="bloquear('${conn.ip}')">BLOCK</button>
+        <button class="btn-unblock" onclick="liberar('${conn.ip}')">FREE</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById('stat-conns').textContent = data.length;
+  document.getElementById('stat-pkts').textContent  = totalPkts.toLocaleString();
+  document.getElementById('stat-bytes').textContent = formatBytes(totalBytes);
+}
+
+function updateMap(data) {
+  const active = new Set(data.map(d => d.ip));
+  Object.keys(markers).forEach(ip => { if (!active.has(ip)) { markers[ip].remove(); delete markers[ip]; } });
+  Object.keys(lines).forEach(ip   => { if (!active.has(ip)) { lines[ip].remove();   delete lines[ip];   } });
+
+  data.forEach(conn => {
+    const geo = conn.geo || {};
+    if (!geo.lat || !geo.lon) return;
+    const ip = conn.ip;
+    if (!markers[ip]) {
+      const icon = L.divIcon({
+        html: `<div style="width:8px;height:8px;border-radius:50%;background:#00ff88;box-shadow:0 0 6px #00ff88"></div>`,
+        className: '', iconSize: [8,8], iconAnchor: [4,4]
+      });
+      markers[ip] = L.marker([geo.lat, geo.lon], { icon })
+        .bindTooltip(`${ip}<br>${geo.city||''}, ${geo.country||''}`, { direction: 'top' })
+        .addTo(map);
+    }
+    if (!lines[ip]) {
+      lines[ip] = L.polyline(
+        [[SERVER_LAT, SERVER_LON], [geo.lat, geo.lon]],
+        { color: '#00ff88', weight: 1, opacity: .4, dashArray: '4 6' }
+      ).addTo(map);
+    }
+  });
+}
+
+// ── WEBSOCKET com reconexão automática ───────────────
+let ws, wsRetries = 0;
+
+function conectarWS() {
+  const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+  dbg('ws', 'conectando…');
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    wsRetries = 0;
+    dbg('ws', 'CONECTADO');
+    document.getElementById('ws-status').textContent = '⬤ ONLINE';
+    document.getElementById('ws-status').style.color = '#00ff88';
+    // ao conectar, força um poll imediato para não ficar em branco
+    pollTraffic();
+  };
+
+  ws.onclose = (e) => {
+    dbg('ws', `FECHADO (${e.code})`);
+    document.getElementById('ws-status').textContent = '⬤ OFFLINE';
+    document.getElementById('ws-status').style.color = '#ff3355';
+    const delay = Math.min(1000 * 2 ** wsRetries, 15000);
+    wsRetries++;
+    dbg('err', `WS fechado — reconectando em ${delay/1000}s`);
+    setTimeout(conectarWS, delay);
+  };
+
+  ws.onerror = (e) => {
+    dbg('err', 'WS erro — veja console', true);
+    console.error('WS error', e);
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      render(JSON.parse(event.data));
+    } catch(e) {
+      dbg('err', 'JSON inválido: ' + e.message, true);
+    }
+  };
+}
+
+// ── FALLBACK POLL via HTTP /traffic ──────────────────
+// Roda sempre em paralelo para garantir dados mesmo se WS falhar
+async function pollTraffic() {
+  try {
+    const r = await fetch('/traffic');
+    if (!r.ok) return;
+    const raw = await r.json(); // dict {ip: {packets,bytes,...}}
+
+    // converte formato dict → array (mesmo formato do WS)
+    const arr = Object.entries(raw).map(([ip, v]) => ({
+      ip,
+      packets:   v.packets  || 0,
+      bytes:     v.bytes    || 0,
+      last_seen: v.last_seen,
+      source:    v.source   || 'poll',
+      geo:       {}  // geo não vem no /traffic, mas WS já tem
+    }));
+
+    // só usa poll se WS não estiver mandando dados
+    if (!ws || ws.readyState !== WebSocket.OPEN || msgCount === 0) {
+      render(arr);
+      dbg('ws', 'fallback HTTP poll');
+    }
+  } catch(e) {
+    dbg('err', 'poll /traffic falhou: ' + e.message, true);
+  }
+}
+
+// ── DIAGNÓSTICO /debug ────────────────────────────────
+async function pollDebug() {
+  try {
+    const r = await fetch('/debug');
+    if (!r.ok) return;
+    const d = await r.json();
+    dbg('iface', d.interface || '?');
+    if (!d.scapy_ok) {
+      dbg('err', `Scapy OFF | ss_ips: ${d.ss_ips?.length||0} | traffic: ${d.traffic_keys?.length||0}`);
+    }
+  } catch(e) {}
+}
+
+// ── AÇÕES ─────────────────────────────────────────────
+async function bloquear(ip) {
+  const r = await fetch(`/block/${ip}`, { method: 'POST' });
+  const d = await r.json();
+  console.log('block', d);
+  carregarLogs();
+}
+
+async function liberar(ip) {
+  const r = await fetch(`/unblock/${ip}`, { method: 'POST' });
+  const d = await r.json();
+  console.log('unblock', d);
+  carregarLogs();
+}
+
+// ── LOGS ─────────────────────────────────────────────
+async function carregarLogs() {
+  try {
+    const r = await fetch('/logs');
+    if (!r.ok) return;
+    const data = await r.json();
+    const div = document.getElementById('logs');
+    if (data.length === 0) { div.innerHTML = '<div class="no-logs">sem eventos</div>'; return; }
+    div.innerHTML = '';
+    data.forEach(l => {
+      const ts = new Date(l.timestamp * 1000).toLocaleTimeString('pt-BR');
+      const el = document.createElement('div');
+      el.className = 'log-entry';
+      el.innerHTML = `
+        <span class="log-action ${l.action}">${l.action}</span>
+        <span class="log-ip">${l.ip}</span>
+        <span class="log-time">${ts}</span>`;
+      div.appendChild(el);
+    });
+  } catch(e) { console.warn('logs:', e); }
+}
+
+// ── INIT ──────────────────────────────────────────────
+conectarWS();
+setInterval(pollTraffic, 3000);   // fallback poll a cada 3s
+setInterval(carregarLogs, 5000);
+setInterval(pollDebug,    8000);
+pollDebug();
+carregarLogs();
+</script>
+</body>
+</html>
